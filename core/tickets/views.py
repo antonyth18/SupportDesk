@@ -64,4 +64,71 @@ class TicketStatsView(views.APIView):
             "category_breakdown": category_breakdown
         }
 
-        return Response(data)
+
+
+from django.conf import settings
+from groq import Groq, APIError
+import json
+
+class TicketClassifyView(views.APIView):
+    def post(self, request):
+        description = request.data.get('description')
+        if not description:
+            return Response(
+                {"error": "Description is required."},
+                status=400
+            )
+
+        api_key = getattr(settings, 'GROQ_API_KEY', None)
+        if not api_key:
+             return Response(
+                {
+                    "suggested_category": None,
+                    "suggested_priority": None,
+                    "error": "Groq API key not configured."
+                },
+                status=200 
+            )
+
+        client = Groq(api_key=api_key)
+        
+        prompt = f"""
+        Analyze the following ticket description and suggest a category and priority.
+        
+        Description: "{description}"
+        
+        Allowed Categories: billing, technical, account, general
+        Allowed Priorities: low, medium, high, critical
+        
+        Return ONLY a JSON object with keys "suggested_category" and "suggested_priority".
+        Example: {{"suggested_category": "technical", "suggested_priority": "high"}}
+        """
+
+        try:
+            response = client.chat.completions.create(
+                model="llama3-8b-8192",
+                messages=[
+                    {"role": "system", "content": "You are a helpful support ticket classifier."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=50,
+                temperature=0.3,
+            )
+            content = response.choices[0].message.content.strip()
+            # Handle potential markdown code blocks in response
+            if content.startswith('```json'):
+                content = content.replace('```json', '').replace('```', '')
+            
+            data = json.loads(content)
+            
+            return Response({
+                "suggested_category": data.get("suggested_category"),
+                "suggested_priority": data.get("suggested_priority")
+            })
+
+        except (APIError, json.JSONDecodeError, Exception) as e:
+            # Log error in production
+            return Response({
+                "suggested_category": None,
+                "suggested_priority": None
+            })

@@ -3,3 +3,4 @@ djangorestframework>=3.14
 psycopg2-binary>=2.9
 python-decouple>=3.8
 django-filter>=23.5
+groq>=0.4.0
